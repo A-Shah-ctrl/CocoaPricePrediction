@@ -1,0 +1,330 @@
+---
+title: "modelingARIMA and RandomFOrest"
+author: "Peush Gomes"
+date: "2025-03-19"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(astsa)
+library(ggplot2)
+library(tidyverse)
+library(forecast)
+library(tseries)
+library(randomForest)
+library(caret)
+library(zoo)
+
+```
+
+```{r}
+cleands <- read.csv("data/cleaned_data.csv")
+
+ts_price <- ts(cleands$PriceAvg, frequency = 12, start = c(1994, 10))
+
+#Taking log of the prices to see if we can help with heteroskeadicity and fit, more relative change, but will have to unlog after forecasting
+
+log_ts_price <- ts(log(cleands$PriceAvg), frequency = 12, start = c(1994, 10))
+plot(ts_price)
+plot(log_ts_price)
+```
+
+
+```{r}
+par(mfrow = c(1,2))
+acf(ts_price, main = "ACF")
+pacf(ts_price, main = "PACF")
+```
+
+```{r}
+par(mfrow = c(1,2))
+acf(log_ts_price, main = "ACF")
+pacf(log_ts_price, main = "PACF")
+```
+
+
+
+```{r}
+#try diff
+dprice <- diff(log_ts_price)
+
+plot(dprice, type = "l",
+     main = "First Difference of Data",
+     ylab = expression(Delta * "Price"),
+     xlab = "Time")
+
+acf(dprice, main = "ACF")
+pacf(dprice, main = "PACF")
+
+#exogenous vars
+exog_vars <- cleands %>%
+  select(PrcpAvg, TAvg, Dom_USD_Period_Average) %>%
+  as.matrix()
+
+#sarmia modeling
+
+ma_1_models <- sarima(ts_price, 0,0,1)
+
+arimax_model <- auto.arima(ts_price, xreg = exog_vars)
+summary(arimax_model)
+checkresiduals(arimax_model)
+```
+
+
+```{r}
+#logARIMAX MODEL
+arimax_model_log <- auto.arima(log_ts_price, xreg = exog_vars)
+summary(arimax_model_log)
+checkresiduals(arimax_model_log)
+
+#sarmia modeling with vars includede
+
+sarima_model <- sarima(log_ts_price, 0,1,1, xreg = exog_vars)
+sarima_model
+sarima_model_111 <- sarima(ts_price, 1,1,1, xreg = exog_vars)
+```
+```{r}
+AIC(arimax_model, arimax_model_log)
+#logedpriced ARIMAX model (0,1,1) beats out ARIMAX model (0,1,0) via AIC
+sarima_model$ICs
+```
+
+```{r}
+#nonseasonalARIMAseems to underfit try seasonal
+sarima_model_011_withseason <- sarima(log_ts_price, 0,1,1,0,1,1,12, xreg = exog_vars)
+
+sarima_model_011_univariate <- sarima(log_ts_price, 0,1,1,0,1,1,12)
+
+
+
+```
+
+
+```{r}
+#randomforest attempt
+
+data_ml <- cleands %>%
+  mutate(PriceLag1 = lag(PriceAvg, 1)) %>%
+  drop_na()
+
+```
+
+```{r}
+# Split train/test (80/20)
+set.seed(123)
+train_idx <- createDataPartition(data_ml$PriceAvg, p = 0.8, list = FALSE)
+train <- data_ml[train_idx, ]
+test <- data_ml[-train_idx, ]
+```
+
+```{r}
+# Fit random forest
+rf_model <- randomForest(
+  PriceAvg ~ PriceLag1 + PrcpAvg + TAvg + Dom_USD_Period_Average,
+  data = train
+)
+```
+
+```{r}
+rf_preds <- predict(rf_model, newdata = test)
+
+postResample(rf_preds, test$PriceAvg)
+#Will need to compair RMSE of the random forest preds, with the forecasted data from the ARIMA/SARIMA/ARIMAX model of our choosing. 
+```
+
+```{r}
+#RF forecasting
+
+# 1. Last known value (log price) to kick off the loop
+last_log_price <- tail(log_ts_price, 1)
+
+# 2. Create dummy exogenous values (e.g., use last known or rolling mean)
+last_row <- cleands %>%
+  summarise(
+    PrcpAvg = mean(PrcpAvg, na.rm = TRUE),
+    TAvg = mean(TAvg, na.rm = TRUE),
+    Dom_USD_Period_Average = mean(Dom_USD_Period_Average, na.rm = TRUE)
+  )
+
+# 3. Build 4-month future input set
+future_rf_input <- last_row[rep(1, 4), ]
+future_rf_input$PriceLag1 <- NA
+
+# 4. Iteratively forecast next 4 values
+rf_forecast_log <- c()
+
+for (i in 1:4) {
+  # Step 1: Set lag
+  future_rf_input$PriceLag1[i] <- if (i == 1) last_log_price else rf_forecast_log[i - 1]
+  
+  # Step 2: Predict
+  rf_forecast_log[i] <- predict(rf_model, newdata = future_rf_input[i, ])
+}
+
+# Print results
+rf_forecast_log
+
+rf_forecast_act_log <- log(rf_forecast_log)
+
+```
+
+
+```{r}
+newxreg <- tail(exog_vars, 4)  # now 4 rows for 4 months ahead
+
+forecast_log <- sarima.for(log_ts_price, n.ahead = 4,
+           p = 0, d = 1, q = 1,
+           P = 0, D = 1, Q = 1,
+           S = 12,
+           newxreg = newxreg, main = "SARIMA Forecast of Log Cocoa Prices (4-Month Horizon)")
+
+print(forecast_log)
+
+forcased <- exp(forecast_log$pred)
+print(forcased)
+```
+
+```{r}
+#splitting ts into test (4 months) and train
+train_size <- length(log_ts_price) - 4
+tstrain <- head(log_ts_price, train_size)
+tstest <- tail(log_ts_price,4)
+
+
+#exogenous vars
+#exog_vars <- cleands %>%
+#  select(PrcpAvg, TAvg, Dom_USD_Period_Average) %>%
+ # as.matrix()
+
+xreg_train <- as.matrix(head(exog_vars, train_size)[, c("PrcpAvg", "TAvg", "Dom_USD_Period_Average")])
+xreg_test <- as.matrix(tail(exog_vars,4)[, c("PrcpAvg", "TAvg", "Dom_USD_Period_Average")])
+
+train_sarima_model <- sarima(tstrain, 0,1,1,0,1,1,12, xreg = xreg_train)
+
+test_sarima_forecast <- sarima.for(tstrain, n.ahead = 4,
+           p = 0, d = 1, q = 1,
+           P = 0, D = 1, Q = 1,
+           S = 12,
+           newxreg = xreg_test)
+
+test_forecast_price <- exp(test_sarima_forecast$pred)
+print(test_forecast_price)
+
+test_actual <- exp(tstest)
+
+test_rmse <- RMSE(test_actual,test_forecast_price)
+
+
+test_rmse
+
+rf_rmse <- RMSE(test_actual,rf_forecast_log)
+
+rf_rmse
+
+```
+
+```{r}
+#plotvalues 
+
+n_test <- 4
+log_actual <- tail(log_ts_price, n_test)
+log_forecast <- test_sarima_forecast$pred  # from sarima.for()
+
+# Create date sequence for x-axis (adjust if needed)
+forecast_dates <- seq(as.Date("2024-01-01"), by = "month", length.out = n_test)
+
+# Build dataframe for plotting
+plot_df <- data.frame(
+  Date = forecast_dates,
+  Actual = as.numeric(exp(log_actual)),
+  Forecast = as.numeric(exp(log_forecast)),
+  RandomForest = as.numeric(rf_forecast_log)
+)
+
+# Convert to long format
+plot_long <- plot_df %>%
+  pivot_longer(cols = c("Actual", "Forecast", "RandomForest"), names_to = "Type", values_to = "LogPrice")
+
+# Plot
+ggplot(plot_long, aes(x = Date, y = LogPrice, color = Type)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  labs(title = "SARIMA Forecast vs Actual vs RandomForest",
+       x = "Date", y = "Cocoa Price") +
+  scale_color_manual(values = c("Actual" = "black", "Forecast" = "red", "RandomForest" = "forestgreen")) +
+  theme_minimal(base_size = 14)
+
+```
+
+```{r}
+
+# Build dataframe for plotting
+plot_df <- data.frame(
+  Date = forecast_dates,
+  Actual = as.numeric(exp(log_actual)),
+  Forecast = as.numeric(exp(log_forecast)),
+  MutltipleReg = as.numeric(c(7945.434, 8507.443, 8178.286, 8310.560))
+)
+
+# Convert to long format
+plot_long <- plot_df %>%
+  pivot_longer(cols = c("Actual", "Forecast", "MutltipleReg"), names_to = "Type", values_to = "LogPrice")
+
+# Plot
+ggplot(plot_long, aes(x = Date, y = LogPrice, color = Type)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  labs(title = "SARIMA Forecast vs Actual vs MutltipleReg",
+       x = "Date", y = "Cocoa Price") +
+  scale_color_manual(values = c("Actual" = "black", "Forecast" = "red", "MutltipleReg" = "forestgreen")) +
+  theme_minimal(base_size = 14)
+
+```
+
+
+
+
+```{r}
+#trying lagged vars 
+data_x <- read.table("cleaned_data.csv", sep=",", header=TRUE)
+temp <- data_x$TAvg
+precip <- data_x$PrcpAvg
+price <- data_x$PriceAvg
+idx <- data_x$Dom_USD_Period_Average
+
+l_temp <-  diff(temp, lag = 12) # There seems to be some annual seasonality
+l_precip <- diff(precip, lag = 12) # There seems to be some annual seasonality
+l_price <- diff(log(price))
+l_idx <- diff(log(idx))
+
+# Editing the length of temp and precip
+
+l_temp <-  c(rep(NA, 11),l_temp) # There seems to be some annual seasonality
+l_precip <- c(rep(NA, 11),l_precip) # There seems to be
+
+# Lagging the data
+lag_cr_17 <- c(rep(NA, 17), l_idx[1:(length(l_idx) - 17)])
+lag_pr_1 <- c(rep(NA, 1), l_price[1:(length(l_price) - 1)])
+lag_pr_7 <- c(rep(NA, 7), l_price[1:(length(l_price) - 7)])
+lag_pcp_22 <- c(rep(NA, 22), l_precip[1:(length(l_precip) - 22)])
+lag_tmp_24 <- c(rep(NA, 24), l_temp[1:(length(l_temp) - 24)])
+
+# Let's drop the first 35 rows as lag 24 is our max lag and we already diff the temp/prcp series with lag 12. So, we will have data only from 1997 Aug.
+edited_data <- cbind(l_price, l_temp, l_precip, l_idx, lag_pr_1, lag_pr_7, lag_cr_17, lag_tmp_24, lag_pcp_22)
+
+edited_data <- as.data.frame(edited_data)
+
+
+target <- edited_data$l_price
+exog <- as.matrix(edited_data[, c("lag_pr_1", "lag_pr_7", "lag_cr_17", "lag_tmp_24", "lag_pcp_22")])
+
+sarima_fit <- sarima(target, p = 0, d = 1, q = 1, 
+                     P = 0, D = 1, Q = 1, S = 12, 
+                     xreg = exog)
+
+
+
+```
+
+

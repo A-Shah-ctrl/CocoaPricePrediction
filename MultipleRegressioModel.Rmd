@@ -1,0 +1,141 @@
+---
+Author: Ashka Shah
+Date: "2025-03-28"
+---
+# Regession with lagged variables
+
+```{r}
+library(tseries) 
+library(ggplot2)
+library(forecast)
+```
+
+Let's load the data and check whether all the series are stationary by looking at their ACFs If they aren't we will need to transform them.
+
+```{r}
+
+data_x <- read.table("data/cleaned_data.csv", sep=",", header=TRUE)
+
+# Get the separate time series
+temp <- data_x$TAvg
+precip <- data_x$PrcpAvg
+price <- data_x$PriceAvg
+idx <- data_x$Dom_USD_Period_Average
+
+#plot the ACFs
+
+acf(temp, main="ACF of Temperature Series")
+acf(precip, main="ACF of Precipitation Series")
+acf(price,main="ACF of Futures Price Series")
+acf(idx,  main="ACF of Cedi Exchange Rate Series")
+
+```
+
+All series are non-stationary, so let's apply differencing to make them stationary. The Temperature and Precipitation series seems to show annual seasonality so we can difference it accordingly.
+
+```{r}
+l_temp <-  diff(temp, lag = 12) # There seems to be some annual seasonality
+l_precip <- diff(precip, lag = 12) # There seems to be some annual seasonality
+l_price <- diff(log(price))
+l_idx <- diff(log(idx))
+
+#plot the ACFs
+acf(l_temp, main="ACF of Diff Temperature Series")
+acf(l_precip, main="ACF of Diff Precipitation Series")
+acf(l_price, main="ACF of Diff Futures Price Series")
+acf(l_idx,  main="ACF of Diff Cedi Exchange Rate Series")
+
+```
+
+
+
+All the series are now stationary. We can continue with finding Cross-correlations between the Price series and the other three series.
+
+```{r}
+ccf(l_price, l_temp, lag.max = 25, main = "Cross-Correlation between Price and Temperature")
+ccf(l_price, l_precip, lag.max = 25, main = "Cross-Correlation between Price and Precipitation")
+ccf(l_price, l_idx, lag.max = 25, main = "Cross-Correlation between Price and Currency Rates")
+```
+
+Here are some observations from the CCF graphs - 1) There seems to be a significant cross correlation between Price and Currency Rates at Lag 17. 2) There seems to be a significant cross correlation between Price and Precipitation at Lag 22. 3) There seems to be a significant cross correlation between Price and Temperature at Lag 24.
+
+Based on the previous ACF graphs, Prices seems to have a co-relation with Lag 1 and 7 Price. So, we will also use that. We don't want to include all the lags as it increases the number of variables the model has to predict. As a result of adding lags to the data and the differencing for precipitation and temperature we will lose the initial 35 months of data.
+
+```{r}
+# Editing the length of temp and precip
+
+l_temp <-  c(rep(NA, 11),l_temp) # There seems to be some annual seasonality
+l_precip <- c(rep(NA, 11),l_precip) # There seems to be
+
+# Lagging the data
+lag_cr_17 <- c(rep(NA, 17), l_idx[1:(length(l_idx) - 17)])
+lag_pr_1 <- c(rep(NA, 1), l_price[1:(length(l_price) - 1)])
+lag_pr_7 <- c(rep(NA, 7), l_price[1:(length(l_price) - 7)])
+lag_pcp_22 <- c(rep(NA, 22), l_precip[1:(length(l_precip) - 22)])
+lag_tmp_24 <- c(rep(NA, 24), l_temp[1:(length(l_temp) - 24)])
+
+# Let's drop the first 35 rows as lag 24 is our max lag and we already diff the temp/prcp series with lag 12. So, we will have data only from 1997 Aug.
+edited_data <- cbind(l_price, l_temp, l_precip, l_idx, lag_pr_1, lag_pr_7, lag_cr_17, lag_tmp_24, lag_pcp_22)
+```
+
+Now, let's split this dataset into test and validation. We will use the last 4 data points for test set.
+
+```{r}
+test_set <- data.frame(tail(edited_data,4))
+train_set <- head(edited_data, n = nrow(edited_data) - 4)
+# Now let's adjust the train_set for lags
+train_set <- data.frame(edited_data[36:nrow(train_set), ])
+head(train_set)
+
+model <- lm(l_price ~ lag_pr_1 + lag_pr_7 + lag_cr_17 + lag_pcp_22 + lag_tmp_24, data=train_set)
+
+```
+
+```{r}
+summary(model)
+AIC(model)
+
+checkresiduals(model)
+plot(model$residuals)
+
+# Q-Q plot of residuals
+qqnorm(residuals(model))
+qqline(residuals(model))
+
+Box.test(residuals(model),lag=10, type = "Ljung-Box")
+
+```
+Let's forecast the last 4 values.
+
+```{r}  
+forecasted <- predict(model, newdata = test_set[, -which(names(test_set) == "l_price")])
+print(forecasted)
+```
+Before we plot the forecasted prices we need to adjust for the differencing and log transformations.
+
+```{r}
+
+for_prices  <- c(log(data_x$PriceAvg[length(data_x$PriceAvg)-3])) # Get the last 5th log price from the training set
+
+for (i in 1:length(forecasted)) {
+  for_prices <- c(for_prices, for_prices[length(for_prices)] + forecasted[i])
+}
+for_prices <- for_prices[-1] # Removing the first price
+for_prices <- exp(for_prices)
+
+rmse <- sqrt(mean((for_prices - data_x$PriceAvg[(length(data_x$PriceAvg)-3):length(data_x$PriceAvg)])^2))
+print(paste("RMSE: ", rmse))
+
+print("Forecasted Prices")
+print(for_prices)
+print("Actual Prices")
+print(data_x$PriceAvg[(length(data_x$PriceAvg)-3):length(data_x$PriceAvg)])
+
+# Plot Original vs Forecasted Values
+for_prices <- c(rep(NA, length(data_x$PriceAvg) - length(for_prices)), for_prices)
+ggplot() +
+  geom_line(aes(x=as.Date(data_x$YearMonth),y=data_x$PriceAvg), color = "black") +# Line plot
+  geom_line(aes(x=as.Date(data_x$YearMonth),y=for_prices), color = "red") +
+  labs( x = "Date", y = "Cocoa Future Prices")
+```
+

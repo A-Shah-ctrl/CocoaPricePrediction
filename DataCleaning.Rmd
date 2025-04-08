@@ -1,0 +1,226 @@
+---
+Author: Ashka Shah
+Date: "2025-03-25"
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+```
+
+## Data Cleaning and Processing
+
+Let's take a look at the **Ghana Currency Exchange Rate Data**. This series has monthly data. This file was previously an .xlsx file but I manually edited it to make it a proper csv file. From this file we only really need the Dom_USD_Period_Average column (which is the last one), which is the Average Period Exchange Rate for the Domestic Currency (Cedi) per U.S. Dollar.
+
+```{r}
+# Ghana Exchange Rate Data
+exch_rate_avg <- read.table("data/Ghana_Exchange_Rates.csv", sep=",", header=TRUE)
+
+exch_rate_avg$YearMonth <- paste0(gsub("M", "-",exch_rate_avg$YearMonth), "-01")
+exch_rate_avg$YearMonth <- as.Date(exch_rate_avg$YearMonth,"%Y-%m-%d")
+
+# Drop all other columns 
+exch_rate_avg$SDR_End_Period <- NULL
+exch_rate_avg$SDR_Period_Average <- NULL
+exch_rate_avg$Dom_USD_End_Period <- NULL
+
+tail(exch_rate_avg,10)
+
+# Check for duplicates
+duplicates <- exch_rate_avg[duplicated(exch_rate_avg[c("YearMonth")]), ] # Checking for duplicates
+head(duplicates)
+
+# Plotting the values 
+plot(x=exch_rate_avg$YearMonth, y=exch_rate_avg$Dom_USD_Period_Average, main = "Average Monthly Cedi Exchange Rates", xlab = "Time (monthly)", ylab = "USD to Cedi", cex=0.4)
+```
+
+Now let's take a look **Ghana Climate Data**. The dataset has quite a few NaN values in the **PRCP** column. We'll replace these with 0's as NaN meant there was no rain (mentioned in instructions).
+
+```{r}
+# Ghana Climate Data
+climate <- read.table("data/Ghana_Climate_Data.csv", sep=",", header=TRUE)
+climate$DATE <- as.Date(climate$DATE,"%Y-%m-%d")
+climate$PRCP[is.na(climate$PRCP)] <- 0
+climate$TMAX <- NULL
+climate$TMIN <- NULL
+head(climate)
+
+duplicates <- climate[duplicated(climate[c("DATE")]), ] # Checking for duplicates
+head(duplicates)
+
+```
+
+There are multiple locations recording temperatures for the same date and thus, these locations will be grouped and the average of these temperatures will be taken as the daily average temperature and precipitation in Ghana for a particular date.
+
+```{r}
+# Climate Data without location bias
+climate_cmloc <- climate %>%
+  group_by(DATE) %>%
+  summarize(
+    AVG_PRCP = mean(PRCP),
+    AVG_TAVG = mean(TAVG)
+  )
+
+head(climate_cmloc)
+sum(is.na(climate_cmloc$AVG_TAVG))
+sum(is.na(climate_cmloc$AVG_PRCP))
+```
+
+To match the previous dataset we will aggregate the daily data and make it monthly data (we need uniform intervals that match across all datasets). We will aggregate these values to find out the mean precipitation levels during each month.
+
+```{r}
+# Assign all NaN's to 0 as they mean 
+climate_cmloc$YearMonth <- as.Date(format(climate_cmloc$DATE, "%Y-%m-01"))
+
+climate_avg <- climate_cmloc %>%
+  group_by(YearMonth) %>%
+  summarize(
+    PrcpAvg = mean(AVG_PRCP), # Calculating how many days in the month it rained
+    TAvg = mean(AVG_TAVG) # Calculated the months average temperature
+  )
+print(climate_avg)
+
+sum(is.na(climate_avg$PrcpAvg))
+sum(is.na(climate_avg$TAvg)) 
+```
+
+```{r}
+# Plotting the series
+ggplot(climate_avg, aes(x = YearMonth, y = TAvg)) +
+  geom_line(color = 'black') +  # Line graph
+  geom_point(color = 'black') +  # Points on the line
+  labs(title = "Temperature in Ghana", x = "Time (monthly)", y = "Temperature (F)")
+
+ggplot(climate_avg, aes(x = YearMonth, y = PrcpAvg)) +
+  geom_bar(stat = "identity", fill = "black")+
+  labs(title = "Precipitation in Ghana", x = "Time (monthly)", y = "Average Precipitation")
+
+
+```
+
+Let's take a look **Cocoa Daily Futures Price Data**. This data needs to be converted to monthly to match the above time series data as well.
+
+```{r}
+# Cocoa Daily Prices
+prices <- read.table("data/Cocoa_Daily_Prices.csv", sep=",", header=TRUE) # US dollar/tonne
+colnames(prices)[2] <- "Price" # renaming the column to make it easier
+prices$Date <- as.Date(prices$Date,"%d/%m/%Y")
+prices$YearMonth <- as.Date(format(prices$Date, "%Y-%m-01"))
+
+prices$Price <- as.numeric(gsub(",", "",prices$Price)) # removing commas from the values
+
+# Checking for the presence of NA values
+sum(is.na(prices))
+
+# Let's check if there are duplicates
+dups <- prices[duplicated(prices$Date),1]
+print(dups)
+```
+
+There are 4 dates where we have duplicates in the price data. So now let's go ahead and fine what other values exist from these dates.
+
+```{r}
+for (d in dups){
+  print(prices[prices$Date == as.Date(d),])
+}
+```
+
+For the dates, 2023-12-15 and 2024-01-09 we have duplicated prices so we can remove either instance. But for dates 2024-01-30 and 2024-01-31 there is a huge difference between the two prices. We will keep the values that are in the \$4000 neighborhood as its surrounding dates have similar values. It is very unlikely that only these two days have values around \$10,000. We will be removing rows 279,281,297 and 312.
+
+```{r}
+#Let's remove the duplicates
+prices <- prices[-c(279,281,297,312),]
+
+# Check if we have duplicates
+print(prices[duplicated(prices$Date),1])
+
+```
+
+We have no more duplicates so now we can move ahead with converting the daily data to monthly by averaging it
+
+```{r}
+# Making this monthly data 
+prices_avg <- prices %>%
+  group_by(YearMonth) %>%
+  summarize(
+    PriceAvg = mean(Price) # Calculated the months average temperature
+  )
+# Plotting the values 
+plot(x=prices_avg$YearMonth, y=prices_avg$PriceAvg, main = "Monthly Cocoa Futures Price", xlab = "Time (monthly)", ylab = "Price (USD/tonne)", cex=0.4)
+head(prices_avg)
+```
+
+Let's see what series have what months of data
+
+```{r}
+# Let's make sure all years have 12 months with the exception of 2024
+checked <- climate_avg %>%
+  mutate(Year = format(YearMonth, "%Y")) %>%   # Extract year as a new column
+  group_by(Year) %>%
+  summarise(Months = n()) 
+
+print(checked$Year[checked$Months <12])
+
+checkedd <- prices_avg %>%
+  mutate(Year = format(YearMonth, "%Y")) %>%   # Extract year as a new column
+  group_by(Year) %>%
+  summarise(Months = n()) 
+
+print(checkedd$Year[checkedd$Months <12])
+
+checkeddd <- exch_rate_avg %>%
+  mutate(Year = format(YearMonth, "%Y")) %>%   # Extract year as a new column
+  group_by(Year) %>%
+  summarise(Months = n()) 
+
+print(checkeddd$Year[checkeddd$Months <12])
+
+```
+
+The Future Prices series is missing data for months of **1994**, but thats because it only has data starting Oct 1994. The Climate Data series has data from January 1990 to October 2024 and yet it is missing month data from **1994 and 2001**. Let's check which months are missing data.
+
+```{r}
+print(climate_avg[format(climate_avg$YearMonth, "%Y") == "2024",])
+print(climate_avg[format(climate_avg$YearMonth, "%Y") == "2001",])
+print(climate_avg[format(climate_avg$YearMonth, "%Y") == "1994",])
+```
+
+The Climate Data series is missing data from December 1994, October 2001 and December 2001. We will interpolate this missing data using linear interpolation. Since, there are only 3 missing values out of about 360 it doesn't make sense to use too complex of an interpolation method. We will limit our data from the time range - **October 1994 to September 2024**. We'll also put all the series into one file.
+
+```{r}
+# Create new rows to add these months (they don't exist in the dataset at all so we need to add them)
+add_rows <- data.frame(
+  YearMonth = as.Date(c('1994-12-01', '2001-10-01', '2001-12-01')),  # New rows (missing months)
+  PrcpAvg = c(NA, NA, NA),  # Precipitation average (NA)
+  TAvg = c(NA, NA, NA)      # Temperature average (NA)
+)
+
+climate_avg <- rbind(climate_avg, add_rows)
+climate_avg <- climate_avg[order(climate_avg$YearMonth), ]
+
+# Interpolating the three missing values
+climate_avg$PrcpAvg <- approx(climate_avg$YearMonth, climate_avg$PrcpAvg, xout = climate_avg$YearMonth)$y
+climate_avg$TAvg <- approx(climate_avg$YearMonth, climate_avg$TAvg, xout = climate_avg$YearMonth)$y
+
+final_data <- prices_avg %>%
+  inner_join(climate_avg, by = "YearMonth") %>%
+  inner_join(exch_rate_avg, by = "YearMonth") 
+
+
+# Drop any crows with Date < 1994-10-01
+final_data <- final_data %>% filter(YearMonth >= as.Date("1994-10-01"))
+
+# Let's make sure all years have 12 months with the exception of 2024
+checker <- final_data %>%
+  mutate(Year = format(YearMonth, "%Y")) %>%   # Extract year as a new column
+  group_by(Year) %>%
+  summarise(Months = n()) 
+
+print(final_data)
+write.csv(final_data, file = "data/cleaned_data.csv", row.names = FALSE)
+
+```
+
+```{r}
+print(checker)
+```

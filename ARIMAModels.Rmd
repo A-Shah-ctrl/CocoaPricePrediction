@@ -1,0 +1,75 @@
+---
+title: "STA457 Project"
+output: pdf_document
+---
+
+```{r, echo=TRUE, results='hide', message=F, warning=F}
+library(tidyverse)
+library(forecast)
+library(astsa)
+library(tseries)
+```
+
+## Read Data
+
+```{r, echo=TRUE, results='hide', message=F, show_col_types = FALSE, warning=F}
+data <- read_csv("data/cleaned_data.csv")
+
+price_ts <- ts(data$PriceAvg, start=c(1994, 10), frequency=12)
+temp_ts <- ts(data$PrcpAvg, start=c(1994, 10), frequency=12)
+rain_ts <- ts(data$TAvg, start=c(1994, 10), frequency=12)
+currency_ts <- ts(data$Dom_USD_Period_Average, start=c(1994, 10), frequency=12)
+```
+
+## Plot
+
+```{r}
+plot.ts(price_ts)
+plot.ts(temp_ts)
+plot.ts(rain_ts)
+plot.ts(currency_ts)
+```
+
+## Checking Assumptions
+
+```{r}
+acf2(price_ts)
+acf2(temp_ts)
+acf2(rain_ts)
+acf2(currency_ts)
+
+adf.test(price_ts)
+adf.test(temp_ts)
+adf.test(rain_ts)
+adf.test(currency_ts)
+```
+
+From the data, we can see that none of these time series are stationary. Specifically, the temperature and precipitation time series have a p-value of 0.01, so we fail to reject the null hypothesis. Therefore, the time series are not stationary.
+
+We'll try differencing the temperature and rain times series in order to create an ARIMA model off of that.
+
+```{r}
+log_price <- log(price_ts)
+diff_price <- diff(log_price)
+acf2(diff_price)
+```
+
+After differencing, we can see a significant spike in the ACF plot at lag 1 that later tails off, and in the PACF plot, we can see a significant spike at lag 1 that tails off. As a result, we will try fitting an ARIMA(1,1,0) model, an ARIMA(0,1,1) model, and an ARIMA(1,1,1) to see which one has a lower AIC value.
+
+## Univariate ARIMA Models
+
+```{r}
+# ARIMA model
+arima_model1 <- arima(log_price, order = c(1,1,0))
+arima_model2 <- arima(log_price, order = c(0,1,1))
+arima_model3 <- arima(log_price, order = c(1,1,1))
+AIC(arima_model1, arima_model2, arima_model3)
+```
+
+# Checking Residuals
+
+```{r}
+checkresiduals(arima_model1) # ARIMA(1,1,0) model
+checkresiduals(arima_model2) # ARIMA(0,1,1) model
+checkresiduals(arima_model3) # ARIMA(1,1,1) model
+```
