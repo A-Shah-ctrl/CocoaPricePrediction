@@ -287,7 +287,7 @@ ggplot(plot_long, aes(x = Date, y = LogPrice, color = Type)) +
 
 ```{r}
 #trying lagged vars 
-data_x <- read.table("cleaned_data.csv", sep=",", header=TRUE)
+data_x <- read.table("data/cleaned_data.csv", sep=",", header=TRUE)
 temp <- data_x$TAvg
 precip <- data_x$PrcpAvg
 price <- data_x$PriceAvg
