@@ -12,6 +12,7 @@ All the code file are in R Markdown format. The folloding is a description of th
 2) ARIMAModels.Rmd - contains all the code that was run (with explanation) to analyze data and develop ARIMA models for Cocoa Futures Prediction 
 3) MultipleRegressionModel.Rmd - contains all the code that was run (with explanation) to analyze data and develop the Multipl Linear Regression with Lagged Variables model for Cocoa Futures Prediction 
 4) RandomForestAndSARIMA.Rmd - contains all the code that was run (with explanation) to analyze data and develop the SARIMA and Random Forest Models for Cocoa Futures Prediction 
+5) FinalReport.Rmd - contains all the text and code that was used to generate the plots, figures and the content of the FinalReport.pdf
 
 ### Usage
 

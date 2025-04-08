@@ -1,5 +1,6 @@
 ---
 title: "STA457 Project"
+author: "Yiyi Li"
 output: pdf_document
 ---
 
