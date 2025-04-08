@@ -247,7 +247,7 @@ climate_avg <- climate_cmloc %>%
   group_by(YearMonth) %>%
   summarize(
     PrcpAvg = mean(AVG_PRCP), # Calculating how many days in the month it rained
-    TAvg = mean(AVG_TAVG) # Calculated the months average temperature)
+    TAvg = mean(AVG_TAVG)) # Calculated the months average temperature)
 sum(is.na(climate_avg$PrcpAvg))
 sum(is.na(climate_avg$TAvg)) 
 # Plotting the series
@@ -277,7 +277,7 @@ print(prices[duplicated(prices$Date),1])
 # Making this monthly data 
 prices_avg <- prices %>%
   group_by(YearMonth) %>%
-  summarize(PriceAvg = mean(Price) # Calculated the months average temperature)
+  summarize(PriceAvg = mean(Price)) # Calculated the months average temperature)
 # Plotting the values 
 plot(x=prices_avg$YearMonth, y=prices_avg$PriceAvg, main = "Monthly Cocoa Futures Price",
      xlab = "Time (monthly)", ylab = "Price (USD/tonne)", cex=0.4)
@@ -325,7 +325,7 @@ print(checker)
 ## MLR
 
 ```{r, eval=FALSE}
-data_x <- read.table("cleaned_data.csv", sep=",", header=TRUE)
+data_x <- read.table("data/cleaned_data.csv", sep=",", header=TRUE)
 # Get the separate time series
 temp <- data_x$TAvg
 precip <- data_x$PrcpAvg
@@ -426,6 +426,13 @@ adf.test(price_ts)
 adf.test(temp_ts)
 adf.test(rain_ts)
 adf.test(currency_ts)
+```
+
+```{r,eval=FALSE}
+log_price <- log(price_ts)
+diff_price <- diff(log_price)
+acf2(diff_price)
+
 ```
 
 ```{r, eval=FALSE}
