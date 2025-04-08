@@ -36,7 +36,7 @@ sists of monthly Average Exchange Rate values for Cedi to USD obtained from the 
  Monetary Fund](https://data.imf.org/regular.aspx?key=61545850). It ranges from Jan 1990 to Sep 2024. The data is stored under the filename
  Ghana_Exchange_Rates.csv 
 
-There were two other datasets from Food and Agriculture Organization of the United Nations we wanted to incorporate (1) [Production, Yield and Harvest data for Cocoa Beans in Ghana] (https://www.fao.org/faostat/en/#data/QCL), to model the supply of cocoa in Ghana (2) [Cocoa Beans Import in the World] (https://www.fao.org/faostat/en/#data/QCL), to model the demand of cocoa in the world.  Unfortunately, we were unable to these two datasets. <i>Rationale for using and not using certain data sources can be found in FinalReport.pdf</i>.
+There were two other datasets from Food and Agriculture Organization of the United Nations we wanted to incorporate (1) [Production, Yield and Harvest data for Cocoa Beans in Ghana](https://www.fao.org/faostat/en/#data/QCL), to model the supply of cocoa in Ghana (2) [Cocoa Beans Import in the World](https://www.fao.org/faostat/en/#data/QCL), to model the demand of cocoa in the world.  Unfortunately, we were unable to these two datasets. Rationale for using and not using certain data sources can be found in FinalReport.pdf.
 
 <b>Note - </b> This data does not belong to us. All the data used in this project was open source.
 
